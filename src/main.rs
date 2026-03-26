@@ -31,6 +31,14 @@ pub enum Commands {
         #[arg(short, long)]
         name: String,
     },
+    Extract {
+        /// id of the book to extract, you can it thru search
+        #[arg(short, long)]
+         id: String,
+         /// directory to store the extracted artifact
+         #[arg(short, long)]
+         output: Option<String>,
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -78,7 +86,7 @@ fn search_for_book(token: &str, shamela_extracted_path: &Path) -> Result<Vec<Boo
         }
     }
 
-    return Ok(results);
+    Ok(results)
 }
 
 fn main() -> Result<()> {
@@ -108,7 +116,16 @@ fn main() -> Result<()> {
                 search_for_book(&name, &shamela_extraction_dir)
                     .context(format!("searching for book with token: {name}"))?
                     .iter()
-                    .for_each(|r| println!("{r:#?}"));
+                    .for_each(|r| {
+                        let text = r
+                            .body_store
+                            .as_ref()
+                            // i used char here because arabic chars are 2 byte strings, i could've used .truncate(),
+                            // but errrors happened.
+                            .map(|b| b.chars().take(80).collect::<String>())
+                            .unwrap_or_default();
+                        println!("[{}] {}", r.id, text)
+                    });
             }
         }
     };
