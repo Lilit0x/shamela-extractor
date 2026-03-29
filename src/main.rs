@@ -92,33 +92,51 @@ fn search_for_book(token: &str, shamela_extracted_path: &Path) -> Result<Vec<Boo
     Ok(results)
 }
 
-fn scan_titles(id: &str, shamela_extracted_path: &Path) -> Result<Option<String>> {
-    let titles_path = shamela_extracted_path.join("titles.jsonl");
-    let file = File::open(titles_path)?;
-    let reader = BufReader::new(file);
+fn scan_and_write(
+    file_path: &Path,
+    prefix: &str,
+    writer: &mut BufWriter<File>,
+    label: &str,
+) -> Result<usize> {
+    let file_size = std::fs::metadata(file_path)?.len();
+    let file = File::open(file_path)?;
+    let mut reader = BufReader::new(file);
+    let mut buf = String::new();
+    let mut count = 0;
+    let mut total_lines = 0u64;
+    let mut bytes_read = 0u64;
+    loop {
+        buf.clear();
+        let bytes = reader.read_line(&mut buf)?;
+        if bytes == 0 {
+            break;
+        }
+        total_lines += 1;
+        bytes_read += bytes as u64;
 
-    let prefix = format!("\"id\":\"{id}-\"");
+        if total_lines % 500_000 == 0 {
+            let pct = 100.0 * bytes_read as f64 / file_size as f64;
+            eprint!("\r  scanning {}: {:.1}% ({} matches)", label, pct, count);
+        }
 
-    for l in reader.lines() {
-        let line = l?;
-        if line.contains(&prefix) {
-            return Ok(Some(line));
+        if buf.contains(prefix) {
+            write!(writer, "{}", buf)?;
+            count += 1;
         }
     }
-
-    Ok(None)
+    eprintln!(
+        "\r  {}: done — {} matches in {} lines              ",
+        label, count, total_lines
+    );
+    Ok(count)
 }
 
 fn extract_book(id: &str, shamela_extracted_path: &Path, output_path: &Path) -> Result<usize> {
     let metadata = find_book_by_id(id, shamela_extracted_path)?
         .with_context(|| format!("no book found with id: {id}"))?;
 
-    let pages_file_path = shamela_extracted_path.join("pages.jsonl");
-    let file = File::open(pages_file_path).context("opening pages file")?;
-    let mut reader = BufReader::new(file);
-
     // this will enable us to check if a line contains this, so we won't need to deserialize all lines
-    let prefix = format!("\"id\":\"{id}-\"");
+    let prefix = format!("\"id\":\"{id}-");
     let result_path = output_path.join(format!("{id}.jsonl"));
 
     let parent_path = result_path.parent().unwrap();
@@ -130,23 +148,19 @@ fn extract_book(id: &str, shamela_extracted_path: &Path, output_path: &Path) -> 
     ))?);
     writeln!(writer, "{}", serde_json::to_string(&metadata)?)?;
 
-    if let Some(title_line) = scan_titles(id, shamela_extracted_path)? {
-        writeln!(writer, "{title_line}")?;
-    }
+    let _ = scan_and_write(
+        &shamela_extracted_path.join("titles.jsonl"),
+        &prefix,
+        &mut writer,
+        "titles",
+    )?;
+    let pages = scan_and_write(
+        &shamela_extracted_path.join("pages.jsonl"),
+        &prefix,
+        &mut writer,
+        "pages",
+    )?;
 
-    let mut buf = String::new();
-    let mut pages = 0;
-    loop {
-        buf.clear();
-        let bytes = reader.read_line(&mut buf)?;
-        if bytes == 0 {
-            break;
-        }
-        if buf.contains(&prefix) {
-            write!(writer, "{}", buf)?;
-            pages += 1;
-        }
-    }
     Ok(pages as usize)
 }
 
