@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashMap,
     fs::File,
     io::{BufRead, BufReader, BufWriter, Write},
     path::{Path, PathBuf},
@@ -15,10 +16,6 @@ struct Args {
     /// Path to extracted shamela artifacts
     #[arg(short, long, env = "SHAMELA_EXTRACTED_DIR")]
     extract_dir: String,
-
-    /// id of the book to search for
-    #[arg(short, long)]
-    id: Option<String>,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -35,7 +32,7 @@ pub enum Commands {
     Extract {
         /// id of the book to extract, you can it thru search
         #[arg(short, long)]
-        id: String,
+        id: Vec<String>,
         /// directory to store the extracted artifact
         #[arg(short, long)]
         output: Option<String>,
@@ -94,8 +91,8 @@ fn search_for_book(token: &str, shamela_extracted_path: &Path) -> Result<Vec<Boo
 
 fn scan_and_write(
     file_path: &Path,
-    prefix: &str,
-    writer: &mut BufWriter<File>,
+    prefixes: &[(String, String)],
+    writers: &mut HashMap<String, BufWriter<File>>,
     label: &str,
 ) -> Result<usize> {
     let file_size = std::fs::metadata(file_path)?.len();
@@ -119,9 +116,14 @@ fn scan_and_write(
             eprint!("\r  scanning {}: {:.1}% ({} matches)", label, pct, count);
         }
 
-        if buf.contains(prefix) {
-            write!(writer, "{}", buf)?;
-            count += 1;
+        for (book_id, prefix) in prefixes {
+            if buf.contains(prefix.as_str()) {
+                if let Some(w) = writers.get_mut(book_id) {
+                    write!(w, "{}", buf)?;
+                }
+                count += 1;
+                break;
+            }
         }
     }
     eprintln!(
@@ -131,33 +133,41 @@ fn scan_and_write(
     Ok(count)
 }
 
-fn extract_book(id: &str, shamela_extracted_path: &Path, output_path: &Path) -> Result<usize> {
-    let metadata = find_book_by_id(id, shamela_extracted_path)?
-        .with_context(|| format!("no book found with id: {id}"))?;
+fn extract_books(
+    ids: Vec<String>,
+    shamela_extracted_path: &Path,
+    output_path: &Path,
+) -> Result<usize> {
+    let mut prefixes = Vec::new();
+    let mut writers: HashMap<String, BufWriter<File>> = HashMap::new();
 
-    // this will enable us to check if a line contains this, so we won't need to deserialize all lines
-    let prefix = format!("\"id\":\"{id}-");
-    let result_path = output_path.join(format!("{id}.jsonl"));
+    for id in ids {
+        let metadata = find_book_by_id(&id, shamela_extracted_path)?
+            .with_context(|| format!("no book found with id: {id}"))?;
+        prefixes.push((id.clone(), format!("\"id\":\"{id}-")));
 
-    let parent_path = result_path.parent().unwrap();
-    std::fs::create_dir_all(parent_path).unwrap();
+        let result_path = output_path.join(format!("{id}.jsonl"));
+        let parent_path = result_path.parent().unwrap();
+        std::fs::create_dir_all(parent_path).unwrap();
 
-    let mut writer = BufWriter::new(File::create(&result_path).context(format!(
-        "creating output file: {:#?}",
-        result_path.display()
-    ))?);
-    writeln!(writer, "{}", serde_json::to_string(&metadata)?)?;
+        let mut writer = BufWriter::new(File::create(&result_path).context(format!(
+            "creating output file: {:#?}",
+            result_path.display()
+        ))?);
+        writeln!(writer, "{}", serde_json::to_string(&metadata)?)?;
+        writers.insert(id.to_string(), writer);
+    }
 
     let _ = scan_and_write(
         &shamela_extracted_path.join("titles.jsonl"),
-        &prefix,
-        &mut writer,
+        &prefixes,
+        &mut writers,
         "titles",
     )?;
     let pages = scan_and_write(
         &shamela_extracted_path.join("pages.jsonl"),
-        &prefix,
-        &mut writer,
+        &prefixes,
+        &mut writers,
         "pages",
     )?;
 
@@ -179,12 +189,6 @@ fn main() -> Result<()> {
         }
     });
 
-    if let Some(id) = args.id {
-        let res =
-            find_book_by_id(&id, &shamela_extraction_dir).context(format!("finding book: {id}"))?;
-        println!("{res:#?}")
-    }
-
     if let Some(cmd) = args.command {
         match cmd {
             Commands::Search { name } => {
@@ -205,8 +209,7 @@ fn main() -> Result<()> {
             Commands::Extract { id, output } => {
                 let output_dir = PathBuf::from(output.unwrap_or_else(|| ".".to_string()));
                 let start = Instant::now();
-                let pages = extract_book(&id, &shamela_extraction_dir, &output_dir)
-                    .context(format!("extracting book; {id}"))?;
+                let pages = extract_books(id, &shamela_extraction_dir, &output_dir)?;
                 println!(
                     "extracted {} pages in {:.1}s",
                     pages,
