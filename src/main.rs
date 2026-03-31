@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs::File,
     io::{BufRead, BufReader, BufWriter, Write},
     path::{Path, PathBuf},
@@ -52,22 +52,32 @@ struct BookRecord {
 }
 
 // TODO: change to Extractor struct and make the functions methods
+//
 
-fn find_book_by_id(id: &str, shamela_extracted_path: &Path) -> Result<Option<BookRecord>> {
+fn find_books_by_id(
+    ids: &[String],
+    shamela_extracted_path: &Path,
+) -> Result<HashMap<String, BookRecord>> {
     let books_path = shamela_extracted_path.join("books.jsonl");
     let file = File::open(books_path)?;
     let reader = BufReader::new(file);
 
+    let ids2: HashSet<&str> = ids.iter().map(|id| id.as_str()).collect();
+    let mut book_records = HashMap::new();
+
     for l in reader.lines() {
         let line = l?;
-        let record: BookRecord = serde_json::from_str(&line)
-            .with_context(|| "failed to deserialize book record".to_string())?;
-        if record.id == id {
-            return Ok(Some(record));
+        let record: BookRecord =
+            serde_json::from_str(&line).with_context(|| "deserialized fail")?;
+        if ids2.contains(record.id.as_str()) {
+            book_records.insert(record.id.clone(), record);
+        }
+        if book_records.len() == ids.len() {
+            break;
         }
     }
 
-    Ok(None)
+    Ok(book_records)
 }
 
 /// for now it returns the id
@@ -141,9 +151,8 @@ fn extract_books(
     let mut prefixes = Vec::new();
     let mut writers: HashMap<String, BufWriter<File>> = HashMap::new();
 
-    for id in ids {
-        let metadata = find_book_by_id(&id, shamela_extracted_path)?
-            .with_context(|| format!("no book found with id: {id}"))?;
+    let metadatas = find_books_by_id(&ids, shamela_extracted_path)?;
+    for (id, metadata) in metadatas {
         prefixes.push((id.clone(), format!("\"id\":\"{id}-")));
 
         let result_path = output_path.join(format!("{id}.jsonl"));
@@ -196,14 +205,12 @@ fn main() -> Result<()> {
                     .context(format!("searching for book with token: {name}"))?
                     .iter()
                     .for_each(|r| {
-                        let text = r
+                        let title = r
                             .body_store
                             .as_ref()
-                            // i used char here because arabic chars are 2 byte strings, i could've used .truncate(),
-                            // but errrors happened.
-                            .map(|b| b.chars().take(80).collect::<String>())
-                            .unwrap_or_default();
-                        println!("[{}] {}", r.id, text)
+                            .and_then(|b| b.split('\r').next())
+                            .unwrap_or("unknown");
+                        println!("  id: {}\n  title: {}\n", r.id, title);
                     });
             }
             Commands::Extract { id, output } => {
