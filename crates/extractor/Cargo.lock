@@ -59,16 +59,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
-name = "builder"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "clap"
 version = "4.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -131,16 +121,6 @@ name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
-
-[[package]]
-name = "jawhar-extractor"
-version = "0.1.1"
-dependencies = [
- "anyhow",
- "clap",
- "serde",
- "serde_json",
-]
 
 [[package]]
 name = "memchr"
@@ -213,6 +193,16 @@ dependencies = [
  "serde",
  "serde_core",
  "zmij",
+]
+
+[[package]]
+name = "shamela-extractor"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
+ "clap",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

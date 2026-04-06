@@ -129,7 +129,7 @@ fn scan_and_write(
         for (book_id, prefix) in prefixes {
             if buf.contains(prefix.as_str()) {
                 if let Some(w) = writers.get_mut(book_id) {
-                    write!(w, "{}", buf)?;
+                    write!(w, "{{\"type\":\"{}\",{}", label, &buf[1..])?;
                 }
                 count += 1;
                 break;
@@ -163,7 +163,11 @@ fn extract_books(
             "creating output file: {:#?}",
             result_path.display()
         ))?);
-        writeln!(writer, "{}", serde_json::to_string(&metadata)?)?;
+        writeln!(
+            writer,
+            "{{\"type\":\"meta\",{}",
+            &serde_json::to_string(&metadata)?[1..]
+        )?;
         writers.insert(id.to_string(), writer);
     }
 
