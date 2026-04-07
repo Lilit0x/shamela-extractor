@@ -133,6 +133,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "jawhar-core"
+version = "0.1.0"
+
+[[package]]
 name = "jawhar-extractor"
 version = "0.1.1"
 dependencies = [
